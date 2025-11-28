@@ -1,73 +1,55 @@
 import os
 import csv
 import glob
-import datetime
 import random
 from flask import Flask, render_template, request, jsonify
 
 app = Flask(__name__)
 
-# GRE folder inside project root
 GRE_DIR = os.path.join(os.getcwd(), "GRE")
 
-# RESULTS folder in project root
+# ONE SINGLE RESULTS folder
 RESULT_DIR = os.path.join(os.getcwd(), "results")
 if not os.path.exists(RESULT_DIR):
     os.makedirs(RESULT_DIR)
 
+RIGHT_CSV = os.path.join(RESULT_DIR, "right.csv")
+WRONG_CSV = os.path.join(RESULT_DIR, "wrong.csv")
+
 
 def load_words(selection):
-    """
-    selection can be:
-      - "ALL"
-      - list of filenames like ["set10.csv", "set11.csv"]
-    """
-
-    # Determine files to load
+    """Load and randomize words from selected files."""
     if selection == "ALL":
         files = glob.glob(os.path.join(GRE_DIR, "*.csv"))
     else:
         files = [os.path.join(GRE_DIR, f) for f in selection]
 
     words = []
-    seen = set()  # To remove duplicates across files
+    seen = set()
 
     for file in files:
         if not os.path.exists(file):
             continue
-
         with open(file, encoding="utf-8") as f:
             reader = csv.reader(f)
-            try:
-                next(reader)  # Skip header
-            except StopIteration:
-                continue
-
+            next(reader, None)
             for row in reader:
-                if len(row) == 0:
+                if not row or not row[0].strip():
                     continue
 
                 word = row[0].strip()
-                if not word:
-                    continue
+                meaning = ", ".join(c.strip() for c in row[1:] if c.strip())
 
-                if word in seen:
-                    continue  # Skip duplicate word in this session
+                if word not in seen:
+                    words.append({"word": word, "meaning": meaning})
+                    seen.add(word)
 
-                # Combine all other columns as meaning
-                meaning = ", ".join([c.strip() for c in row[1:] if c.strip()])
-
-                words.append({"word": word, "meaning": meaning})
-                seen.add(word)
-
-    # Shuffle for random order
     random.shuffle(words)
     return words
 
 
 @app.route("/")
 def home():
-    # List all CSV files in GRE folder
     files = [os.path.basename(f) for f in glob.glob(os.path.join(GRE_DIR, "*.csv"))]
     files.sort()
     return render_template("index.html", files=files)
@@ -75,10 +57,6 @@ def home():
 
 @app.post("/start")
 def start():
-    """
-    Receives: files="ALL" or "set10.csv,set12.csv"
-    Returns: list of words, total count, session folder name
-    """
     raw = request.form["files"]
 
     if raw == "ALL":
@@ -87,34 +65,23 @@ def start():
         selection = [x.strip() for x in raw.split(",") if x.strip()]
 
     words = load_words(selection)
-    total = len(words)
 
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    session_name = f"session_{timestamp}"
-    session_path = os.path.join(RESULT_DIR, session_name)
-    os.makedirs(session_path)
+    # DELETE previous right/wrong CSV to start fresh
+    if os.path.exists(RIGHT_CSV):
+        os.remove(RIGHT_CSV)
+    if os.path.exists(WRONG_CSV):
+        os.remove(WRONG_CSV)
 
-    return jsonify({
-        "words": words,
-        "total": total,
-        "session": session_name
-    })
+    return jsonify({"words": words, "total": len(words)})
 
 
 @app.post("/save_result")
 def save_result():
-    """
-    Save each word into right.csv or wrong.csv inside session folder
-    """
-    session = request.form["session"]
     word = request.form["word"]
     meaning = request.form["meaning"]
-    status = request.form["status"]  # right / wrong
+    status = request.form["status"]
 
-    session_path = os.path.join(RESULT_DIR, session)
-    file_path = os.path.join(session_path, f"{status}.csv")
-
-    # Write header only once
+    file_path = RIGHT_CSV if status == "right" else WRONG_CSV
     write_header = not os.path.exists(file_path)
 
     with open(file_path, "a", encoding="utf-8", newline="") as f:
@@ -124,6 +91,24 @@ def save_result():
         writer.writerow([word, meaning])
 
     return "OK"
+
+
+@app.get("/get_results")
+def get_results():
+    file = request.args.get("file")  # right / wrong
+    csv_path = RIGHT_CSV if file == "right" else WRONG_CSV
+
+    if not os.path.exists(csv_path):
+        return jsonify([])
+
+    rows = []
+    with open(csv_path, encoding="utf-8") as f:
+        reader = csv.reader(f)
+        next(reader, None)
+        for row in reader:
+            rows.append({"word": row[0], "meaning": row[1]})
+
+    return jsonify(rows)
 
 
 if __name__ == "__main__":

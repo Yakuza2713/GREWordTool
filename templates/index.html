@@ -21,50 +21,35 @@ select, button {
 #fileSelect {
     min-width: 220px;
 }
-#wordBox {
-    margin-top: 60px;
-    font-size: 40px;
-    font-weight: bold;
-}
-#meaningBox {
-    margin-top: 20px;
-    font-size: 22px;
-    color: #cfcfcf;
-    display: none;
-}
-.icon {
-    cursor: pointer;
-    font-size: 34px;
-    margin-top: 15px;
-}
-.btn-row button {
-    margin: 15px;
-    padding: 15px 35px;
-    font-size: 20px;
-    cursor: pointer;
-    border-radius: 8px;
-}
-#rightBtn {
-    background: #0a7d28;
-    border: 1px solid #064d18;
-}
-#wrongBtn {
-    background: #7d0000;
-    border: 1px solid #4d0000;
-}
-#stopBtn {
-    background: #8b0000;
-    border: 1px solid #550000;
-    margin-top: 20px;
-}
 #counter {
     position: absolute;
     top: 20px;
     right: 30px;
     font-size: 18px;
-    color: #e0e0e0;
     text-align: right;
     line-height: 1.4;
+}
+#wordBox {
+    margin-top: 60px;
+    font-size: 70px;     /* BIGGER WORD */
+    font-weight: bold;
+}
+#meaningBox {
+    margin-top: 20px;
+    font-size: 24px;
+    color: #cfcfcf;
+    display: none;
+}
+#resultsBox {
+    display:none;
+    margin-top:20px;
+    padding:20px;
+    background:#1d1d1d;
+    border:1px solid #444;
+    border-radius:10px;
+    max-width: 800px;
+    margin-left:auto;
+    margin-right:auto;
 }
 </style>
 </head>
@@ -88,40 +73,41 @@ select, button {
 
 <div id="wordBox"></div>
 
-<!-- Professional eye icon -->
-<div class="icon" onclick="toggleMeaning()">👁️‍🗨️</div>
+<div onclick="toggleMeaning()" style="font-size:40px; cursor:pointer; margin-top:10px;">
+    👁️‍🗨️
+</div>
 
 <div id="meaningBox"></div>
 
-<div class="btn-row">
-    <button id="rightBtn" onclick="mark('right')">Right ✓</button>
-    <button id="wrongBtn" onclick="mark('wrong')">Wrong ✗</button>
+<div style="margin-top:20px;">
+    <button onclick="mark('right')" style="padding:12px; background:#0a7d28;">Right ✓</button>
+    <button onclick="mark('wrong')" style="padding:12px; background:#7d0000;">Wrong ✗</button>
 </div>
 
-<button id="stopBtn" onclick="stopSession()">STOP</button>
+<button onclick="stopSession()" style="margin-top:20px; padding:12px; background:#8b0000;">STOP</button>
+
+<div style="margin-top:20px;">
+    <button onclick="viewResults('right')">View Right ✓</button>
+    <button onclick="viewResults('wrong')">View Wrong ✗</button>
+</div>
+
+<div id="resultsBox"></div>
+
 
 <script>
 let words = [];
 let index = 0;
-let session = "";
 let active = false;
 let totalWords = 0;
 let rightCount = 0;
 let wrongCount = 0;
+let lastOpened = "";  // tracks which results panel is open
 
 function startSession() {
     const select = document.getElementById("fileSelect");
     const selected = Array.from(select.selectedOptions).map(o => o.value);
 
-    if (selected.length === 0) {
-        alert("Please select at least one set or ALL.");
-        return;
-    }
-
-    let filesValue = "ALL";
-    if (!selected.includes("ALL")) {
-        filesValue = selected.join(",");
-    }
+    let filesValue = selected.includes("ALL") ? "ALL" : selected.join(",");
 
     fetch("/start", {
         method: "POST",
@@ -131,58 +117,39 @@ function startSession() {
     .then(data => {
         words = data.words;
         totalWords = data.total;
-        session = data.session;
+
         index = 0;
         rightCount = 0;
         wrongCount = 0;
-
-        if (totalWords === 0) {
-            active = false;
-            document.getElementById("wordBox").innerHTML = "";
-            document.getElementById("meaningBox").innerHTML = "";
-            document.getElementById("counter").innerHTML = "";
-            alert("No words found for the selected files.");
-            return;
-        }
-
         active = true;
+
         updateCounter();
         showWord();
     });
 }
 
 function showWord() {
-    if (!active) return;
     document.getElementById("wordBox").innerHTML = words[index].word;
     document.getElementById("meaningBox").innerHTML = words[index].meaning;
     document.getElementById("meaningBox").style.display = "none";
 }
 
 function toggleMeaning() {
-    if (!active) return;
     const box = document.getElementById("meaningBox");
-    box.style.display = (box.style.display === "none") ? "block" : "none";
+    box.style.display = box.style.display === "none" ? "block" : "none";
 }
 
 function mark(status) {
     if (!active) return;
 
-    const w = words[index];
+    if (status === "right") rightCount++;
+    else wrongCount++;
 
-    // Update local counts
-    if (status === "right") {
-        rightCount++;
-    } else if (status === "wrong") {
-        wrongCount++;
-    }
-
-    // Save to backend
     fetch("/save_result", {
         method: "POST",
         body: new URLSearchParams({
-            session,
-            word: w.word,
-            meaning: w.meaning,
+            word: words[index].word,
+            meaning: words[index].meaning,
             status: status
         })
     });
@@ -192,33 +159,57 @@ function mark(status) {
 
     if (index >= words.length) {
         active = false;
-        alert("Done! Results saved in ./results/" + session);
+        alert("Done!");
         return;
     }
     showWord();
 }
 
 function stopSession() {
-    if (!active) {
-        alert("No active session.");
-        return;
-    }
-
     active = false;
-    alert("Session stopped. Results saved in ./results/" + session);
-
-    document.getElementById("wordBox").innerHTML = "";
-    document.getElementById("meaningBox").innerHTML = "";
-    document.getElementById("counter").innerHTML = "";
+    alert("Stopped.");
 }
 
 function updateCounter() {
-    if (!active) return;
-    const done = index; // words answered so far
     document.getElementById("counter").innerHTML =
-        `${done} / ${totalWords} words done<br>` +
+        `${index} / ${totalWords} words done<br>` +
         `Right - ${rightCount}<br>` +
         `Wrong - ${wrongCount}`;
+}
+
+function viewResults(type) {
+    const box = document.getElementById("resultsBox");
+
+    // Collapse if same button clicked again
+    if (lastOpened === type && box.style.display === "block") {
+        box.style.display = "none";
+        lastOpened = "";
+        return;
+    }
+
+    lastOpened = type; // set new open panel
+
+    fetch(`/get_results?file=${type}`)
+        .then(res => res.json())
+        .then(rows => {
+            let html = `<h3>${type.toUpperCase()} WORDS</h3>`;
+            if (rows.length === 0) {
+                html += "<p>No entries yet.</p>";
+            } else {
+                html += "<table style='margin:auto; color:white; border-collapse:collapse;'>";
+                html += "<tr><th>Word</th><th>Meaning</th></tr>";
+                rows.forEach(r => {
+                    html += `<tr>
+                        <td style='padding:6px;border-top:1px solid #444'>${r.word}</td>
+                        <td style='padding:6px;border-top:1px solid #444'>${r.meaning}</td>
+                    </tr>`;
+                });
+                html += "</table>";
+            }
+
+            box.style.display = "block";
+            box.innerHTML = html;
+        });
 }
 </script>
 
