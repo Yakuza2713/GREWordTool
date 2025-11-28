@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>GRE Word Practice</title>
+
+<style>
+body {
+    background: #121212;
+    color: white;
+    font-family: Arial, sans-serif;
+    text-align: center;
+    padding: 20px;
+}
+select, button {
+    padding: 10px;
+    background: #1e1e1e;
+    color: white;
+    border: 1px solid #444;
+    border-radius: 5px;
+}
+#fileSelect {
+    min-width: 220px;
+}
+#wordBox {
+    margin-top: 60px;
+    font-size: 40px;
+    font-weight: bold;
+}
+#meaningBox {
+    margin-top: 20px;
+    font-size: 22px;
+    color: #cfcfcf;
+    display: none;
+}
+.icon {
+    cursor: pointer;
+    font-size: 34px;
+    margin-top: 15px;
+}
+.btn-row button {
+    margin: 15px;
+    padding: 15px 35px;
+    font-size: 20px;
+    cursor: pointer;
+    border-radius: 8px;
+}
+#rightBtn {
+    background: #0a7d28;
+    border: 1px solid #064d18;
+}
+#wrongBtn {
+    background: #7d0000;
+    border: 1px solid #4d0000;
+}
+#stopBtn {
+    background: #8b0000;
+    border: 1px solid #550000;
+    margin-top: 20px;
+}
+#counter {
+    position: absolute;
+    top: 20px;
+    right: 30px;
+    font-size: 18px;
+    color: #e0e0e0;
+    text-align: right;
+    line-height: 1.4;
+}
+</style>
+</head>
+
+<body>
+
+<h1>GRE Word Practice</h1>
+
+<p>Select one or more sets (or ALL):</p>
+
+<select id="fileSelect" multiple size="6">
+    <option value="ALL">ALL (all files)</option>
+    {% for f in files %}
+        <option value="{{f}}">{{f}}</option>
+    {% endfor %}
+</select>
+
+<button onclick="startSession()">Start</button>
+
+<div id="counter"></div>
+
+<div id="wordBox"></div>
+
+<!-- Professional eye icon -->
+<div class="icon" onclick="toggleMeaning()">👁️‍🗨️</div>
+
+<div id="meaningBox"></div>
+
+<div class="btn-row">
+    <button id="rightBtn" onclick="mark('right')">Right ✓</button>
+    <button id="wrongBtn" onclick="mark('wrong')">Wrong ✗</button>
+</div>
+
+<button id="stopBtn" onclick="stopSession()">STOP</button>
+
+<script>
+let words = [];
+let index = 0;
+let session = "";
+let active = false;
+let totalWords = 0;
+let rightCount = 0;
+let wrongCount = 0;
+
+function startSession() {
+    const select = document.getElementById("fileSelect");
+    const selected = Array.from(select.selectedOptions).map(o => o.value);
+
+    if (selected.length === 0) {
+        alert("Please select at least one set or ALL.");
+        return;
+    }
+
+    let filesValue = "ALL";
+    if (!selected.includes("ALL")) {
+        filesValue = selected.join(",");
+    }
+
+    fetch("/start", {
+        method: "POST",
+        body: new URLSearchParams({ files: filesValue })
+    })
+    .then(res => res.json())
+    .then(data => {
+        words = data.words;
+        totalWords = data.total;
+        session = data.session;
+        index = 0;
+        rightCount = 0;
+        wrongCount = 0;
+
+        if (totalWords === 0) {
+            active = false;
+            document.getElementById("wordBox").innerHTML = "";
+            document.getElementById("meaningBox").innerHTML = "";
+            document.getElementById("counter").innerHTML = "";
+            alert("No words found for the selected files.");
+            return;
+        }
+
+        active = true;
+        updateCounter();
+        showWord();
+    });
+}
+
+function showWord() {
+    if (!active) return;
+    document.getElementById("wordBox").innerHTML = words[index].word;
+    document.getElementById("meaningBox").innerHTML = words[index].meaning;
+    document.getElementById("meaningBox").style.display = "none";
+}
+
+function toggleMeaning() {
+    if (!active) return;
+    const box = document.getElementById("meaningBox");
+    box.style.display = (box.style.display === "none") ? "block" : "none";
+}
+
+function mark(status) {
+    if (!active) return;
+
+    const w = words[index];
+
+    // Update local counts
+    if (status === "right") {
+        rightCount++;
+    } else if (status === "wrong") {
+        wrongCount++;
+    }
+
+    // Save to backend
+    fetch("/save_result", {
+        method: "POST",
+        body: new URLSearchParams({
+            session,
+            word: w.word,
+            meaning: w.meaning,
+            status: status
+        })
+    });
+
+    index++;
+    updateCounter();
+
+    if (index >= words.length) {
+        active = false;
+        alert("Done! Results saved in ./results/" + session);
+        return;
+    }
+    showWord();
+}
+
+function stopSession() {
+    if (!active) {
+        alert("No active session.");
+        return;
+    }
+
+    active = false;
+    alert("Session stopped. Results saved in ./results/" + session);
+
+    document.getElementById("wordBox").innerHTML = "";
+    document.getElementById("meaningBox").innerHTML = "";
+    document.getElementById("counter").innerHTML = "";
+}
+
+function updateCounter() {
+    if (!active) return;
+    const done = index; // words answered so far
+    document.getElementById("counter").innerHTML =
+        `${done} / ${totalWords} words done<br>` +
+        `Right - ${rightCount}<br>` +
+        `Wrong - ${wrongCount}`;
+}
+</script>
+
+</body>
+</html>
